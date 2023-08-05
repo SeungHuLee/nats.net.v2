@@ -2,22 +2,29 @@
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet" Version="0.13.1" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="6.0.0" />
-        <PackageReference Include="StackExchange.Redis" Version="2.5.43" />
-        <PackageReference Include="ZLogger" Version="1.6.1" />
-        <PackageReference Include="NATS.Client" Version="0.14.5" />
+        <PackageReference Include="BenchmarkDotNet" Version="0.13.7" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.6.23329.7" />
+        <PackageReference Include="StackExchange.Redis" Version="2.6.122" />
+        <PackageReference Include="ZLogger" Version="1.7.0" />
+        <PackageReference Include="NATS.Client" Version="1.0.7" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\NATS.Client.Core\NATS.Client.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="Stylecop.Analyzers" Version="1.2.0-beta.507">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
     </ItemGroup>
 
 </Project>

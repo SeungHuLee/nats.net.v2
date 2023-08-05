@@ -31,39 +31,31 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.Hosting", "src\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MinimumWebApp", "sandbox\MinimumWebApp\MinimumWebApp.csproj", "{44881DEE-8B49-44EA-B0BA-8BDA4F706E1A}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "BlazorWasm", "BlazorWasm", "{326017A7-18B3-4567-B9F9-5521E4467198}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.SubscribeRaw", "sandbox\Example.Core.SubscribeRaw\Example.Core.SubscribeRaw.csproj", "{07217C71-7260-4C5B-B405-75905E5BC76B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorWasm.Client", "sandbox\BlazorWasm\Client\BlazorWasm.Client.csproj", "{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.SubscribeModel", "sandbox\Example.Core.SubscribeModel\Example.Core.SubscribeModel.csproj", "{6E000410-7557-46F0-BACC-10CD31FF1D5B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorWasm.Server", "sandbox\BlazorWasm\Server\BlazorWasm.Server.csproj", "{36B9F490-681F-432D-B8FA-64440EC076D9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.SubscribeQueueGroup", "sandbox\Example.Core.SubscribeQueueGroup\Example.Core.SubscribeQueueGroup.csproj", "{C85BA135-3C21-4027-BE5A-849E1011DD0A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlazorWasm.Shared", "sandbox\BlazorWasm\Shared\BlazorWasm.Shared.csproj", "{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.PublishModel", "sandbox\Example.Core.PublishModel\Example.Core.PublishModel.csproj", "{29F96D05-D02F-4610-A8FB-3527BF83C4A5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.SubscribeRaw", "sandbox\Example.Core.SubscribeRaw\Example.Core.SubscribeRaw.csproj", "{07217C71-7260-4C5B-B405-75905E5BC76B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.Core.MemoryTests", "tests\NATS.Client.Core.MemoryTests\NATS.Client.Core.MemoryTests.csproj", "{B26DE6AC-A4D5-4427-8453-EE3514E4B513}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.SubscribeModel", "sandbox\Example.Core.SubscribeModel\Example.Core.SubscribeModel.csproj", "{6E000410-7557-46F0-BACC-10CD31FF1D5B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.PublishHeaders", "sandbox\Example.Core.PublishHeaders\Example.Core.PublishHeaders.csproj", "{B0C82F24-BDEC-4420-A02A-F74E2423D755}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.SubscribeQueueGroup", "sandbox\Example.Core.SubscribeQueueGroup\Example.Core.SubscribeQueueGroup.csproj", "{C85BA135-3C21-4027-BE5A-849E1011DD0A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Example.Core.SubscribeHeaders", "sandbox\Example.Core.SubscribeHeaders\Example.Core.SubscribeHeaders.csproj", "{A96660DB-DAEB-4C57-8096-F236AC4FA927}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.PublishModel", "sandbox\Example.Core.PublishModel\Example.Core.PublishModel.csproj", "{29F96D05-D02F-4610-A8FB-3527BF83C4A5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.JetStream", "src\NATS.Client.JetStream\NATS.Client.JetStream.csproj", "{56A9B885-6B7E-4BC6-AED0-ADC67C9A68DB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NATS.Client.Core.MemoryTests", "tests\NATS.Client.Core.MemoryTests\NATS.Client.Core.MemoryTests.csproj", "{B26DE6AC-A4D5-4427-8453-EE3514E4B513}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.JetStream.Tests", "tests\NATS.Client.JetStream.Tests\NATS.Client.JetStream.Tests.csproj", "{2D39F649-C512-4EE5-9DFA-7BD4D9E4F145}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.PublishHeaders", "sandbox\Example.Core.PublishHeaders\Example.Core.PublishHeaders.csproj", "{B0C82F24-BDEC-4420-A02A-F74E2423D755}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Example.Core.SubscribeHeaders", "sandbox\Example.Core.SubscribeHeaders\Example.Core.SubscribeHeaders.csproj", "{A96660DB-DAEB-4C57-8096-F236AC4FA927}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NATS.Client.JetStream", "src\NATS.Client.JetStream\NATS.Client.JetStream.csproj", "{56A9B885-6B7E-4BC6-AED0-ADC67C9A68DB}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NATS.Client.JetStream.Tests", "tests\NATS.Client.JetStream.Tests\NATS.Client.JetStream.Tests.csproj", "{2D39F649-C512-4EE5-9DFA-7BD4D9E4F145}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NATS.Client.TestUtilities", "tests\NATS.Client.TestUtilities\NATS.Client.TestUtilities.csproj", "{90E5BF38-70C1-460A-9177-CE42815BDBF5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.TestUtilities", "tests\NATS.Client.TestUtilities\NATS.Client.TestUtilities.csproj", "{90E5BF38-70C1-460A-9177-CE42815BDBF5}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{BD234E2E-F51A-4B18-B8BE-8AF6D546BF87}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Schema.Generation", "tools\Schema.Generation\Schema.Generation.csproj", "{B7DD4A9C-2D24-4772-951E-86A665C59ADF}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Schema.Generation", "tools\Schema.Generation\Schema.Generation.csproj", "{B7DD4A9C-2D24-4772-951E-86A665C59ADF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NATS.Client.Perf", "tests\NATS.Client.Perf\NATS.Client.Perf.csproj", "{ADF66CBA-4F3E-4E91-9842-E194E3BC06A1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NATS.Client.Perf", "tests\NATS.Client.Perf\NATS.Client.Perf.csproj", "{ADF66CBA-4F3E-4E91-9842-E194E3BC06A1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -99,18 +91,6 @@ Global
 		{44881DEE-8B49-44EA-B0BA-8BDA4F706E1A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{44881DEE-8B49-44EA-B0BA-8BDA4F706E1A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{44881DEE-8B49-44EA-B0BA-8BDA4F706E1A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{36B9F490-681F-432D-B8FA-64440EC076D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{36B9F490-681F-432D-B8FA-64440EC076D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{36B9F490-681F-432D-B8FA-64440EC076D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{36B9F490-681F-432D-B8FA-64440EC076D9}.Release|Any CPU.Build.0 = Release|Any CPU
-		{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2}.Release|Any CPU.Build.0 = Release|Any CPU
 		{07217C71-7260-4C5B-B405-75905E5BC76B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{07217C71-7260-4C5B-B405-75905E5BC76B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{07217C71-7260-4C5B-B405-75905E5BC76B}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -171,10 +151,6 @@ Global
 		{A10F0D89-13F3-49B3-ACF7-66E45DC95225} = {95A69671-16CA-4133-981C-CC381B7AAA30}
 		{D3F09B30-1ED5-48C2-81CD-A2AD88E751AC} = {4827B3EC-73D8-436D-AE2A-5E29AC95FD0C}
 		{44881DEE-8B49-44EA-B0BA-8BDA4F706E1A} = {95A69671-16CA-4133-981C-CC381B7AAA30}
-		{326017A7-18B3-4567-B9F9-5521E4467198} = {95A69671-16CA-4133-981C-CC381B7AAA30}
-		{EFBCEF7F-51AA-4717-8E3E-304B6506F1AC} = {326017A7-18B3-4567-B9F9-5521E4467198}
-		{36B9F490-681F-432D-B8FA-64440EC076D9} = {326017A7-18B3-4567-B9F9-5521E4467198}
-		{35D141D0-F80A-4E9B-A2AA-A1AEA925C9C2} = {326017A7-18B3-4567-B9F9-5521E4467198}
 		{07217C71-7260-4C5B-B405-75905E5BC76B} = {95A69671-16CA-4133-981C-CC381B7AAA30}
 		{6E000410-7557-46F0-BACC-10CD31FF1D5B} = {95A69671-16CA-4133-981C-CC381B7AAA30}
 		{C85BA135-3C21-4027-BE5A-849E1011DD0A} = {95A69671-16CA-4133-981C-CC381B7AAA30}
