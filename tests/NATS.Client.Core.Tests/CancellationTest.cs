@@ -17,8 +17,8 @@ public class CancellationTest
     {
         await using var server = NatsServer.Start(_output, TransportType.Tcp);
 
-        await using var subConnection = server.CreateClientConnection(NatsOptions.Default with { CommandTimeout = TimeSpan.FromSeconds(1) });
-        await using var pubConnection = server.CreateClientConnection(NatsOptions.Default with { CommandTimeout = TimeSpan.FromSeconds(1) });
+        await using var subConnection = server.CreateClientConnection(NatsOpts.Default with { CommandTimeout = TimeSpan.FromSeconds(1) });
+        await using var pubConnection = server.CreateClientConnection(NatsOpts.Default with { CommandTimeout = TimeSpan.FromSeconds(1) });
         await pubConnection.ConnectAsync();
 
         await subConnection.SubscribeAsync("foo");
@@ -28,7 +28,7 @@ public class CancellationTest
 
         var timeoutException = await Assert.ThrowsAsync<TimeoutException>(async () =>
         {
-            await pubConnection.PublishAsync("foo", "aiueo", new NatsPubOpts { WaitUntilSent = true });
+            await pubConnection.PublishAsync("foo", "aiueo", opts: new NatsPubOpts { WaitUntilSent = true });
         });
 
         timeoutException.Message.Should().Contain("1 seconds elapsing");

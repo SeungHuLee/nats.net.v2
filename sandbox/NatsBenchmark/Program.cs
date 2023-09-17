@@ -57,7 +57,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -132,7 +132,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -216,7 +216,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -296,7 +296,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -394,7 +394,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -511,7 +511,7 @@ namespace NatsBenchmark
 
             var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ILogger<Benchmark>>();
-            var options = NatsOptions.Default with
+            var options = NatsOpts.Default with
             {
                 // LoggerFactory = loggerFactory,
                 UseThreadPoolCallback = false,
@@ -811,7 +811,7 @@ public struct Vector3
 
 internal static class NatsMsgTestUtils
 {
-    internal static NatsSub<T>? Register<T>(this NatsSub<T>? sub, Action<NatsMsg<T?>> action)
+    internal static INatsSub<T>? Register<T>(this INatsSub<T>? sub, Action<NatsMsg<T?>> action)
     {
         if (sub == null)
             return null;
@@ -825,7 +825,7 @@ internal static class NatsMsgTestUtils
         return sub;
     }
 
-    internal static NatsSub? Register(this NatsSub? sub, Action<NatsMsg> action)
+    internal static INatsSub? Register(this INatsSub? sub, Action<NatsMsg> action)
     {
         if (sub == null)
             return null;

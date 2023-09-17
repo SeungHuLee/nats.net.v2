@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using NATS.Client.Core;
 
 var subject = "bar.xyz";
-var options = NatsOptions.Default with { LoggerFactory = new MinimumConsoleLoggerFactory(LogLevel.Error) };
+var options = NatsOpts.Default with { LoggerFactory = new MinimumConsoleLoggerFactory(LogLevel.Error) };
 
 Print("[CON] Connecting...\n");
 
@@ -15,7 +15,7 @@ for (var i = 0; i < 10; i++)
     await connection.PublishAsync<Bar>(
         subject,
         new Bar { Id = i, Name = "Baz" },
-        new NatsPubOpts { Headers = new NatsHeaders { ["XFoo"] = $"bar{i}" } });
+        headers: new NatsHeaders { ["XFoo"] = $"bar{i}" });
 }
 
 void Print(string message)

@@ -1,6 +1,5 @@
 using System.Buffers;
 using NATS.Client.Core.Commands;
-using NATS.Client.Core.Internal;
 
 namespace NATS.Client.Core;
 
@@ -100,18 +99,17 @@ public partial class NatsConnection
         }
     }
 
-    internal ValueTask<T> SubAsync<T>(string subject, NatsSubOpts? opts, INatsSubBuilder<T> builder, CancellationToken cancellationToken = default)
-        where T : INatsSub
+    internal ValueTask SubAsync(string subject, string? queueGroup, NatsSubOpts? opts, NatsSubBase sub, CancellationToken cancellationToken = default)
     {
         if (ConnectionState == NatsConnectionState.Open)
         {
-            return _subscriptionManager.SubscribeAsync(subject, opts, builder, cancellationToken);
+            return SubscriptionManager.SubscribeAsync(subject, queueGroup, opts, sub, cancellationToken);
         }
         else
         {
-            return WithConnectAsync(subject, opts, builder, cancellationToken, static (self, s, o, b, token) =>
+            return WithConnectAsync(subject, queueGroup, opts, sub, cancellationToken, static (self, s, q, o, b, token) =>
             {
-                return self._subscriptionManager.SubscribeAsync(s, o, b, token);
+                return self.SubscriptionManager.SubscribeAsync(s, q, o, b, token);
             });
         }
     }

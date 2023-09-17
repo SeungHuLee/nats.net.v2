@@ -16,7 +16,7 @@ public class ManageConsumerTest
 
         await using var server = NatsServer.StartJS();
         var nats = server.CreateClientConnection();
-        var js = new NatsJSContext(nats, new NatsJSOptions());
+        var js = new NatsJSContext(nats);
         await js.CreateStreamAsync("s1", new[] { "s1.*" }, cts.Token);
 
         // Create
@@ -52,7 +52,7 @@ public class ManageConsumerTest
 
         await using var server = NatsServer.StartJS();
         var nats = server.CreateClientConnection();
-        var js = new NatsJSContext(nats, new NatsJSOptions());
+        var js = new NatsJSContext(nats);
         await js.CreateStreamAsync("s1", new[] { "s1.*" }, cts.Token);
         await js.CreateConsumerAsync("s1", "c1", cancellationToken: cts.Token);
         await js.CreateConsumerAsync("s1", "c2", cancellationToken: cts.Token);
@@ -60,17 +60,17 @@ public class ManageConsumerTest
 
         // List
         {
-            var list = new List<NatsJSConsumer>();
-            await foreach (var consumer in js.ListConsumersAsync("s1", new ConsumerListRequest(), cts.Token))
+            var list = new List<ConsumerInfo>();
+            await foreach (var consumer in js.ListConsumersAsync("s1", cts.Token))
             {
-                list.Add(consumer);
+                list.Add(consumer.Info);
             }
 
             Assert.Equal(3, list.Count);
-            Assert.True(list.All(c => c.Info.StreamName == "s1"));
-            Assert.Contains(list, c => c.Info.Config.Name == "c1");
-            Assert.Contains(list, c => c.Info.Config.Name == "c2");
-            Assert.Contains(list, c => c.Info.Config.Name == "c3");
+            Assert.True(list.All(c => c.StreamName == "s1"));
+            Assert.Contains(list, c => c.Config.Name == "c1");
+            Assert.Contains(list, c => c.Config.Name == "c2");
+            Assert.Contains(list, c => c.Config.Name == "c3");
         }
 
         // Delete
@@ -78,14 +78,14 @@ public class ManageConsumerTest
             var response = await js.DeleteConsumerAsync("s1", "c1", cts.Token);
             Assert.True(response);
 
-            var list = new List<NatsJSConsumer>();
-            await foreach (var consumer in js.ListConsumersAsync("s1", new ConsumerListRequest(), cts.Token))
+            var list = new List<ConsumerInfo>();
+            await foreach (var consumer in js.ListConsumersAsync("s1", cts.Token))
             {
-                list.Add(consumer);
+                list.Add(consumer.Info);
             }
 
             Assert.Equal(2, list.Count);
-            Assert.DoesNotContain(list, c => c.Info.Config.Name == "c1");
+            Assert.DoesNotContain(list, c => c.Config.Name == "c1");
         }
     }
 }

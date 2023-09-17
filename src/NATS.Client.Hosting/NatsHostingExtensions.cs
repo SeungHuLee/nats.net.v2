@@ -11,7 +11,7 @@ public static class NatsHostingExtensions
     /// Add NatsConnection/Pool to ServiceCollection. When poolSize = 1, registered `NatsConnection` and `INatsCommand` as singleton.
     /// Others, registered `NatsConnectionPool` as singleton, `NatsConnection` and `INatsCommand` as transient(get from pool).
     /// </summary>
-    public static IServiceCollection AddNats(this IServiceCollection services, int poolSize = 1, Func<NatsOptions, NatsOptions>? configureOptions = null, Action<NatsConnection>? configureConnection = null)
+    public static IServiceCollection AddNats(this IServiceCollection services, int poolSize = 1, Func<NatsOpts, NatsOpts>? configureOpts = null, Action<NatsConnection>? configureConnection = null)
     {
         poolSize = Math.Max(poolSize, 1);
 
@@ -19,35 +19,39 @@ public static class NatsHostingExtensions
         {
             services.TryAddSingleton<NatsConnectionPool>(provider =>
             {
-                var options = NatsOptions.Default with { LoggerFactory = provider.GetRequiredService<ILoggerFactory>() };
-                if (configureOptions != null)
+                var options = NatsOpts.Default with { LoggerFactory = provider.GetRequiredService<ILoggerFactory>() };
+                if (configureOpts != null)
                 {
-                    options = configureOptions(options);
+                    options = configureOpts(options);
                 }
 
                 return new NatsConnectionPool(poolSize, options, configureConnection ?? (_ => { }));
             });
 
+            services.TryAddSingleton<INatsConnectionPool>(static provider =>
+            {
+                return provider.GetRequiredService<NatsConnectionPool>();
+            });
+
             services.TryAddTransient<NatsConnection>(static provider =>
             {
                 var pool = provider.GetRequiredService<NatsConnectionPool>();
-                return pool.GetConnection();
+                return (pool.GetConnection() as NatsConnection)!;
             });
 
             services.TryAddTransient<INatsConnection>(static provider =>
             {
-                var pool = provider.GetRequiredService<NatsConnectionPool>();
-                return pool.GetCommand();
+                return provider.GetRequiredService<NatsConnection>();
             });
         }
         else
         {
             services.TryAddSingleton<NatsConnection>(provider =>
             {
-                var options = NatsOptions.Default with { LoggerFactory = provider.GetRequiredService<ILoggerFactory>() };
-                if (configureOptions != null)
+                var options = NatsOpts.Default with { LoggerFactory = provider.GetRequiredService<ILoggerFactory>() };
+                if (configureOpts != null)
                 {
-                    options = configureOptions(options);
+                    options = configureOpts(options);
                 }
 
                 var conn = new NatsConnection(options);

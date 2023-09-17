@@ -1,17 +1,22 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using NATS.Client.Core;
+using NATS.Client.JetStream.Internal;
 using NATS.Client.JetStream.Models;
 
 namespace NATS.Client.JetStream;
 
+/// <summary>
+/// Represents a NATS JetStream consumer.
+/// </summary>
 public class NatsJSConsumer
 {
     private readonly NatsJSContext _context;
     private readonly string _stream;
     private readonly string _consumer;
-    private bool _deleted;
+    private volatile bool _deleted;
 
-    public NatsJSConsumer(NatsJSContext context, ConsumerInfo info)
+    internal NatsJSConsumer(NatsJSContext context, ConsumerInfo info)
     {
         _context = context;
         Info = info;
@@ -19,194 +24,274 @@ public class NatsJSConsumer
         _consumer = Info.Name;
     }
 
-    public ConsumerInfo Info { get; }
+    /// <summary>
+    /// Consumer info object as retrieved from NATS JetStream server at the time this object was created, updated or refreshed.
+    /// </summary>
+    public ConsumerInfo Info { get; private set; }
 
+    /// <summary>
+    /// Delete this consumer.
+    /// </summary>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the API call.</param>
+    /// <returns>Whether delete was successful or not.</returns>
+    /// <exception cref="NatsJSException">There was an issue retrieving the response.</exception>
+    /// <exception cref="NatsJSApiException">Server responded with an error.</exception>
+    /// <remarks>After deletion this object can't be used anymore.</remarks>
+    /// <exception cref="NatsJSApiException">Server responded with an error.</exception>
+    /// <exception cref="NatsJSException">There is an error sending the message or this consumer object isn't valid anymore because it was deleted earlier.</exception>
     public async ValueTask<bool> DeleteAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDeleted();
         return _deleted = await _context.DeleteConsumerAsync(_stream, _consumer, cancellationToken);
     }
 
-    public async IAsyncEnumerable<NatsJSMsg<T?>> ConsumeAsync<T>(int maxMsgs, ConsumerOpts opts, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Starts an enumerator consuming messages from the stream using this consumer.
+    /// </summary>
+    /// <param name="opts">Consume options. (default: <c>MaxMsgs</c> 1,000)</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the call.</param>
+    /// <typeparam name="T">Message type to deserialize.</typeparam>
+    /// <returns>Async enumerable of messages which can be used in a <c>await foreach</c> loop.</returns>
+    /// <exception cref="NatsJSProtocolException">Consumer is deleted, it's push based or request sent to server is invalid.</exception>
+    public async IAsyncEnumerable<NatsJSMsg<T?>> ConsumeAllAsync<T>(
+        NatsJSConsumeOpts? opts = default,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        ThrowIfDeleted();
-        var prefetch = opts.Prefetch;
-        var lowWatermark = opts.LowWatermark;
-        var shouldPrefetch = true;
-
-        if (maxMsgs <= prefetch)
+        opts ??= _context.Opts.DefaultConsumeOpts;
+        await using var cc = await ConsumeAsync<T>(opts, cancellationToken);
+        await foreach (var jsMsg in cc.Msgs.ReadAllAsync(cancellationToken))
         {
-            prefetch = maxMsgs;
-            lowWatermark = maxMsgs;
-            shouldPrefetch = false;
-        }
-
-        var inbox = $"_INBOX.{Guid.NewGuid():n}";
-
-        var requestOpts = default(NatsSubOpts);
-        var request = new ConsumerGetnextRequest { Batch = prefetch };
-
-        ConsumerGetnextRequest? fetch = default;
-        if (shouldPrefetch)
-        {
-            fetch = new ConsumerGetnextRequest { Batch = prefetch - lowWatermark };
-        }
-
-        await using var sub = await _context.Nats.SubAsync(
-            subject: inbox,
-            opts: requestOpts,
-            builder: NatsJSSubModelBuilder<T>.For(requestOpts.Serializer ?? _context.Nats.Options.Serializer),
-            cancellationToken);
-
-        static async ValueTask MsgNextAsync(NatsJSContext context, string stream, string consumer, ConsumerGetnextRequest request, string inbox, CancellationToken cancellationtoken)
-        {
-            await context.Nats.PubModelAsync(
-                subject: $"$JS.API.CONSUMER.MSG.NEXT.{stream}.{consumer}",
-                data: request,
-                serializer: JsonNatsSerializer.Default,
-                replyTo: inbox,
-                headers: default,
-                cancellationtoken);
-        }
-
-        await MsgNextAsync(_context, _stream, _consumer, request, inbox, cancellationToken);
-
-        var count = 0;
-        await foreach (var msg in sub.Msgs.ReadAllAsync(cancellationToken))
-        {
-            if (msg.IsControlMsg)
-            {
-                // TODO: Heartbeats etc.
-            }
-            else
-            {
-                yield return msg.JSMsg!.Value;
-
-                if (++count == maxMsgs)
-                {
-                    break;
-                }
-
-                if (shouldPrefetch && count % lowWatermark == 0)
-                {
-                    await MsgNextAsync(_context, _stream, _consumer, fetch!, inbox, cancellationToken);
-                }
-            }
-        }
-
-        if (sub is { EndReason: NatsSubEndReason.Exception, Exception: not null })
-        {
-            throw sub.Exception;
+            yield return jsMsg;
         }
     }
 
-    public async ValueTask<NatsJSMsg<T?>> NextAsync<T>(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Starts consuming messages from the stream using this consumer.
+    /// </summary>
+    /// <param name="opts">Consume options. (default: <c>MaxMsgs</c> 1,000)</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the call.</param>
+    /// <typeparam name="T">Message type to deserialize.</typeparam>
+    /// <returns>A consume object to manage the operation and retrieve messages.</returns>
+    /// <exception cref="NatsJSProtocolException">Consumer is deleted, it's push based or request sent to server is invalid.</exception>
+    /// <exception cref="NatsJSException">There is an error sending the message or this consumer object isn't valid anymore because it was deleted earlier.</exception>
+    public async ValueTask<INatsJSConsume<T>> ConsumeAsync<T>(NatsJSConsumeOpts? opts = default, CancellationToken cancellationToken = default)
     {
-        await foreach (var natsJSMsg in FetchAsync<T>(1, cancellationToken))
+        ThrowIfDeleted();
+
+        var inbox = _context.NewInbox();
+
+        var max = NatsJSOptsDefaults.SetMax(opts.MaxMsgs, opts.MaxBytes, opts.ThresholdMsgs, opts.ThresholdBytes);
+        var timeouts = NatsJSOptsDefaults.SetTimeouts(opts.Expires, opts.IdleHeartbeat);
+
+        var requestOpts = new NatsSubOpts
+        {
+            Serializer = opts.Serializer,
+            ChannelOpts = new NatsSubChannelOpts
+            {
+                // Keep capacity at 1 to make sure message acknowledgements are sent
+                // right after the message is processed and messages aren't queued up
+                // which might cause timeouts for acknowledgments.
+                Capacity = 1,
+                FullMode = BoundedChannelFullMode.Wait,
+            },
+        };
+
+        var sub = new NatsJSConsume<T>(
+            stream: _stream,
+            consumer: _consumer,
+            context: _context,
+            subject: inbox,
+            queueGroup: default,
+            opts: requestOpts,
+            maxMsgs: max.MaxMsgs,
+            maxBytes: max.MaxBytes,
+            thresholdMsgs: max.ThresholdMsgs,
+            thresholdBytes: max.ThresholdBytes,
+            expires: timeouts.Expires,
+            idle: timeouts.IdleHeartbeat);
+
+        await _context.Connection.SubAsync(
+            subject: inbox,
+            queueGroup: default,
+            opts: requestOpts,
+            sub: sub,
+            cancellationToken);
+
+        await sub.CallMsgNextAsync(
+            new ConsumerGetnextRequest
+            {
+                Batch = max.MaxMsgs,
+                MaxBytes = max.MaxBytes,
+                IdleHeartbeat = timeouts.IdleHeartbeat.ToNanos(),
+                Expires = timeouts.Expires.ToNanos(),
+            },
+            cancellationToken);
+
+        sub.ResetPending();
+        sub.ResetHeartbeatTimer();
+
+        return sub;
+    }
+
+    /// <summary>
+    /// Consume a single message from the stream using this consumer.
+    /// </summary>
+    /// <param name="opts">Next message options. (default: 30 seconds timeout)</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the call.</param>
+    /// <typeparam name="T">Message type to deserialize.</typeparam>
+    /// <returns>Message retrieved from the stream or <c>NULL</c></returns>
+    /// <exception cref="NatsJSProtocolException">Consumer is deleted, it's push based or request sent to server is invalid.</exception>
+    /// <exception cref="NatsJSException">There is an error sending the message or this consumer object isn't valid anymore because it was deleted earlier.</exception>
+    /// <remarks>
+    /// <para>
+    /// If the request to server expires (in 30 seconds by default) this call returns <c>NULL</c>.
+    /// </para>
+    /// <para>
+    /// This method is implemented as a fetch with <c>MaxMsgs=1</c> which means every request will create a new subscription
+    /// on the NATS server. This would be inefficient if you're consuming a lot of messages and you should consider using
+    /// fetch or consume methods.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// The following example shows how you might process messages:
+    /// <code lang="C#">
+    /// var next = await consumer.NextAsync&lt;Data&gt;();
+    /// if (next is { } msg)
+    /// {
+    ///     // process the message
+    ///     await msg.AckAsync();
+    /// }
+    /// </code>
+    /// </example>
+    public async ValueTask<NatsJSMsg<T?>?> NextAsync<T>(NatsJSNextOpts? opts = default, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDeleted();
+        opts ??= _context.Opts.DefaultNextOpts;
+
+        await using var f = await FetchAsync<T>(
+            new NatsJSFetchOpts
+            {
+                MaxMsgs = 1,
+                IdleHeartbeat = opts.IdleHeartbeat,
+                Expires = opts.Expires,
+                Serializer = opts.Serializer,
+            },
+            cancellationToken: cancellationToken);
+
+        await foreach (var natsJSMsg in f.Msgs.ReadAllAsync(cancellationToken))
         {
             return natsJSMsg;
         }
 
-        throw new NatsJSException("No data");
+        return default;
     }
 
-    public async IAsyncEnumerable<NatsJSMsg<T?>> FetchAsync<T>(
-        int maxMsgs,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        var request = new ConsumerGetnextRequest { Batch = maxMsgs, };
-
-        var count = 0;
-        await foreach (var msg in ConsumeRawAsync<T>(request, default, cancellationToken).ConfigureAwait(false))
-        {
-            if (msg.IsControlMsg)
-            {
-                // TODO: Heartbeats etc.
-            }
-            else
-            {
-                yield return msg.JSMsg!.Value;
-
-                if (++count == maxMsgs)
-                    break;
-            }
-        }
-    }
-
-    internal async IAsyncEnumerable<NatsJSControlMsg> ConsumeRawAsync(
-        ConsumerGetnextRequest request,
-        NatsSubOpts requestOpts = default,
+    /// <summary>
+    /// Consume a set number of messages from the stream using this consumer.
+    /// </summary>
+    /// <param name="opts">Fetch options. (default: <c>MaxMsgs</c> 1,000 and timeout in 30 seconds)</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the call.</param>
+    /// <typeparam name="T">Message type to deserialize.</typeparam>
+    /// <returns>Async enumerable of messages which can be used in a <c>await foreach</c> loop.</returns>
+    /// <exception cref="NatsJSProtocolException">Consumer is deleted, it's push based or request sent to server is invalid.</exception>
+    /// <exception cref="NatsJSException">There is an error sending the message or this consumer object isn't valid anymore because it was deleted earlier.</exception>
+    public async IAsyncEnumerable<NatsJSMsg<T?>> FetchAllAsync<T>(
+        NatsJSFetchOpts? opts = default,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var inbox = $"_INBOX.{Guid.NewGuid():n}";
+        ThrowIfDeleted();
+        opts ??= _context.Opts.DefaultFetchOpts;
 
-        await using var sub = await _context.Nats.SubAsync(
-            subject: inbox,
-            opts: requestOpts,
-            builder: NatsJSSubBuilder.Default,
-            cancellationToken);
-
-        await _context.Nats.PubModelAsync(
-            subject: $"$JS.API.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
-            data: request,
-            serializer: JsonNatsSerializer.Default,
-            replyTo: inbox,
-            headers: default,
-            cancellationToken);
-
-        await foreach (var msg in sub.Msgs.ReadAllAsync(cancellationToken))
+        await using var fc = await FetchAsync<T>(opts, cancellationToken);
+        await foreach (var jsMsg in fc.Msgs.ReadAllAsync(cancellationToken))
         {
-            yield return msg;
-        }
-
-        if (sub is { EndReason: NatsSubEndReason.Exception, Exception: not null })
-        {
-            throw sub.Exception;
+            yield return jsMsg;
         }
     }
 
-    internal async IAsyncEnumerable<NatsJSControlMsg<T?>> ConsumeRawAsync<T>(
-        ConsumerGetnextRequest request,
-        NatsSubOpts requestOpts = default,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Consume a set number of messages from the stream using this consumer.
+    /// </summary>
+    /// <param name="opts">Fetch options. (default: <c>MaxMsgs</c> 1,000 and timeout in 30 seconds)</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the call.</param>
+    /// <typeparam name="T">Message type to deserialize.</typeparam>
+    /// <returns>A fetch object to manage the operation and retrieve messages.</returns>
+    /// <exception cref="NatsJSProtocolException">Consumer is deleted, it's push based or request sent to server is invalid.</exception>
+    /// <exception cref="NatsJSException">There is an error sending the message or this consumer object isn't valid anymore because it was deleted earlier.</exception>
+    public async ValueTask<INatsJSFetch<T>> FetchAsync<T>(
+        NatsJSFetchOpts? opts = default,
+        CancellationToken cancellationToken = default)
     {
-        var inbox = $"_INBOX.{Guid.NewGuid():n}";
+        ThrowIfDeleted();
+        opts ??= _context.Opts.DefaultFetchOpts;
 
-        await using var sub = await _context.Nats.SubAsync(
+        var inbox = _context.NewInbox();
+
+        var max = NatsJSOptsDefaults.SetMax(opts.MaxMsgs, opts.MaxBytes);
+        var timeouts = NatsJSOptsDefaults.SetTimeouts(opts.Expires, opts.IdleHeartbeat);
+
+        var requestOpts = new NatsSubOpts
+        {
+            Serializer = opts.Serializer,
+            ChannelOpts = new NatsSubChannelOpts
+            {
+                // Keep capacity at 1 to make sure message acknowledgements are sent
+                // right after the message is processed and messages aren't queued up
+                // which might cause timeouts for acknowledgments.
+                Capacity = 1,
+                FullMode = BoundedChannelFullMode.Wait,
+            },
+        };
+
+        var sub = new NatsJSFetch<T>(
+            stream: _stream,
+            consumer: _consumer,
+            context: _context,
             subject: inbox,
+            queueGroup: default,
             opts: requestOpts,
-            builder: NatsJSSubModelBuilder<T>.For(requestOpts.Serializer ?? _context.Nats.Options.Serializer),
+            maxMsgs: max.MaxMsgs,
+            maxBytes: max.MaxBytes,
+            expires: timeouts.Expires,
+            idle: timeouts.IdleHeartbeat);
+
+        await _context.Connection.SubAsync(
+            subject: inbox,
+            queueGroup: default,
+            opts: requestOpts,
+            sub: sub,
             cancellationToken);
 
-        await _context.Nats.PubModelAsync(
-            subject: $"$JS.API.CONSUMER.MSG.NEXT.{_stream}.{_consumer}",
-            data: request,
-            serializer: JsonNatsSerializer.Default,
-            replyTo: inbox,
-            headers: default,
+        await sub.CallMsgNextAsync(
+            new ConsumerGetnextRequest
+            {
+                Batch = max.MaxMsgs,
+                MaxBytes = max.MaxBytes,
+                IdleHeartbeat = timeouts.IdleHeartbeat.ToNanos(),
+                Expires = timeouts.Expires.ToNanos(),
+            },
             cancellationToken);
 
-        await foreach (var msg in sub.Msgs.ReadAllAsync(cancellationToken))
-        {
-            yield return msg;
-        }
+        sub.ResetHeartbeatTimer();
 
-        if (sub is { EndReason: NatsSubEndReason.Exception, Exception: not null })
-        {
-            throw sub.Exception;
-        }
+        return sub;
     }
+
+    /// <summary>
+    /// Retrieve the consumer info from the server and update this consumer.
+    /// </summary>
+    /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the API call.</param>
+    /// <exception cref="NatsJSException">There was an issue retrieving the response.</exception>
+    /// <exception cref="NatsJSApiException">Server responded with an error.</exception>
+    public async ValueTask RefreshAsync(CancellationToken cancellationToken = default) =>
+        Info = await _context.JSRequestResponseAsync<object, ConsumerInfo>(
+            subject: $"{_context.Opts.Prefix}.CONSUMER.INFO.{_stream}.{_consumer}",
+            request: null,
+            cancellationToken).ConfigureAwait(false);
 
     private void ThrowIfDeleted()
     {
         if (_deleted)
             throw new NatsJSException($"Consumer '{_stream}:{_consumer}' is deleted");
     }
-}
-
-public record ConsumerOpts
-{
-    public int Prefetch { get; set; } = 1_000;
-
-    public int LowWatermark { get; set; } = 500;
 }

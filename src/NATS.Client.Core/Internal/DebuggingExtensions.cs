@@ -27,10 +27,10 @@ public static class DebuggingExtensions
                 sb.Append(b);
                 break;
             case '\r':
-                sb.Append('␍');
+                sb.Append("\\r");
                 break;
             case '\n':
-                sb.Append('␊');
+                sb.Append("\\n");
                 break;
             default:
                 sb.Append('.');
@@ -47,6 +47,7 @@ public static class DebuggingExtensions
             return "<NULL>";
 
         var sb = new StringBuilder();
+        sb.AppendLine($"{headers.Version} {headers.Code} {headers.Message} {headers.MessageText}");
         foreach (var (key, stringValues) in headers)
         {
             foreach (var value in stringValues)

@@ -24,15 +24,12 @@ internal sealed class ProtocolWriter
 
     // https://docs.nats.io/reference/reference-protocols/nats-protocol#connect
     // CONNECT {["option_name":option_value],...}
-    public void WriteConnect(ClientOptions options)
+    public void WriteConnect(ClientOpts opts)
     {
         WriteConstant(CommandConstants.ConnectWithPadding);
 
         var jsonWriter = new Utf8JsonWriter(_writer);
-        JsonSerializer.Serialize(jsonWriter, options, new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        });
+        JsonSerializer.Serialize(jsonWriter, opts, JsonContext.Default.ClientOpts);
 
         WriteConstant(CommandConstants.NewLine);
     }

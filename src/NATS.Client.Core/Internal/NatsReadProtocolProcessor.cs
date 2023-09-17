@@ -27,13 +27,13 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
     public NatsReadProtocolProcessor(ISocketConnection socketConnection, NatsConnection connection, TaskCompletionSource waitForInfoSignal, TaskCompletionSource waitForPongOrErrorSignal, Task infoParsed)
     {
         _connection = connection;
-        _logger = connection.Options.LoggerFactory.CreateLogger<NatsReadProtocolProcessor>();
+        _logger = connection.Opts.LoggerFactory.CreateLogger<NatsReadProtocolProcessor>();
         _trace = _logger.IsEnabled(LogLevel.Trace);
         _waitForInfoSignal = waitForInfoSignal;
         _waitForPongOrErrorSignal = waitForPongOrErrorSignal;
         _infoParsed = infoParsed;
         _pingCommands = new ConcurrentQueue<AsyncPingCommand>();
-        _socketReader = new SocketReader(socketConnection, connection.Options.ReaderBufferSize, connection.Counter, connection.Options.LoggerFactory);
+        _socketReader = new SocketReader(socketConnection, connection.Opts.ReaderBufferSize, connection.Counter, connection.Opts.LoggerFactory);
         _readLoop = Task.Run(ReadLoopAsync);
     }
 
@@ -103,7 +103,8 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
         // skip `INFO`
         var jsonReader = new Utf8JsonReader(buffer.Slice(5));
 
-        var serverInfo = JsonSerializer.Deserialize<ServerInfo>(ref jsonReader) ?? throw new NatsException("Can not parse ServerInfo.");
+        var serverInfo = JsonSerializer.Deserialize(ref jsonReader, JsonContext.Default.ServerInfo)
+                         ?? throw new NatsException("Can not parse ServerInfo.");
         return serverInfo;
     }
 
@@ -113,21 +114,6 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
     {
         // SKip `-ERR `
         return Encoding.UTF8.GetString(errorSlice.Slice(5));
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Split(ReadOnlySpan<byte> span, out ReadOnlySpan<byte> left, out ReadOnlySpan<byte> right)
-    {
-        var i = span.IndexOf((byte)' ');
-        if (i == -1)
-        {
-            left = span;
-            right = default;
-            return;
-        }
-
-        left = span.Slice(0, i);
-        right = span.Slice(i + 1);
     }
 
     private async Task ReadLoopAsync()
@@ -275,14 +261,7 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
                         // Prepare buffer for the next message by removing 'headers + payload + \r\n' from it
                         buffer = buffer.Slice(buffer.GetPosition(2, totalSlice.End));
 
-                        var versionLength = CommandConstants.NatsHeaders10NewLine.Length;
-                        var versionSlice = totalSlice.Slice(0, versionLength);
-                        if (!versionSlice.ToSpan().SequenceEqual(CommandConstants.NatsHeaders10NewLine))
-                        {
-                            throw new NatsException("Protocol error: header version mismatch");
-                        }
-
-                        var headerSlice = totalSlice.Slice(versionLength, headersLength - versionLength);
+                        var headerSlice = totalSlice.Slice(0, headersLength);
                         var payloadSlice = totalSlice.Slice(headersLength, payloadLength);
 
                         await _connection.PublishToClientHandlersAsync(subject, replyTo, sid, headerSlice, payloadSlice)
@@ -404,7 +383,7 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
                 var newPosition = newBuffer.PositionOf((byte)'\n');
 
                 var serverInfo = ParseInfo(newBuffer);
-                _connection.ServerInfo = serverInfo;
+                _connection.WritableServerInfo = serverInfo;
                 _logger.LogInformation("Received ServerInfo: {0}", serverInfo);
                 _waitForInfoSignal.TrySetResult();
                 await _infoParsed.ConfigureAwait(false);
@@ -413,7 +392,7 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
             else
             {
                 var serverInfo = ParseInfo(buffer);
-                _connection.ServerInfo = serverInfo;
+                _connection.WritableServerInfo = serverInfo;
                 _logger.LogInformation("Received ServerInfo: {0}", serverInfo);
                 _waitForInfoSignal.TrySetResult();
                 await _infoParsed.ConfigureAwait(false);
@@ -446,9 +425,9 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
     private (string subject, int sid, int payloadLength, string? replyTo) ParseMessageHeader(ReadOnlySpan<byte> msgHeader)
     {
         msgHeader = msgHeader.Slice(4);
-        Split(msgHeader, out var subjectBytes, out msgHeader);
-        Split(msgHeader, out var sidBytes, out msgHeader);
-        Split(msgHeader, out var replyToOrSizeBytes, out msgHeader);
+        msgHeader.Split(out var subjectBytes, out msgHeader);
+        msgHeader.Split(out var sidBytes, out msgHeader);
+        msgHeader.Split(out var replyToOrSizeBytes, out msgHeader);
 
         var subject = Encoding.ASCII.GetString(subjectBytes);
 
@@ -498,12 +477,12 @@ internal sealed class NatsReadProtocolProcessor : IAsyncDisposable
     private (string subject, int sid, string? replyTo, int headersLength, int totalLength) ParseHMessageHeader(ReadOnlySpan<byte> msgHeader)
     {
         // 'HMSG' literal
-        Split(msgHeader, out _, out msgHeader);
+        msgHeader.Split(out _, out msgHeader);
 
-        Split(msgHeader, out var subjectBytes, out msgHeader);
-        Split(msgHeader, out var sidBytes, out msgHeader);
-        Split(msgHeader, out var replyToOrHeaderLenBytes, out msgHeader);
-        Split(msgHeader, out var headerLenOrTotalLenBytes, out msgHeader);
+        msgHeader.Split(out var subjectBytes, out msgHeader);
+        msgHeader.Split(out var sidBytes, out msgHeader);
+        msgHeader.Split(out var replyToOrHeaderLenBytes, out msgHeader);
+        msgHeader.Split(out var headerLenOrTotalLenBytes, out msgHeader);
 
         var subject = Encoding.ASCII.GetString(subjectBytes);
         var sid = GetInt32(sidBytes);

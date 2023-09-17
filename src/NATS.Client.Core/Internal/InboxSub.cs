@@ -5,11 +5,10 @@ using Microsoft.Extensions.Logging;
 
 namespace NATS.Client.Core.Internal;
 
-internal class InboxSub : INatsSub
+internal class InboxSub : NatsSubBase
 {
     private readonly InboxSubBuilder _inbox;
     private readonly NatsConnection _connection;
-    private readonly ISubscriptionManager _manager;
 
     public InboxSub(
         InboxSubBuilder inbox,
@@ -17,37 +16,29 @@ internal class InboxSub : INatsSub
         NatsSubOpts? opts,
         NatsConnection connection,
         ISubscriptionManager manager)
+    : base(connection, manager, subject, queueGroup: default, opts)
     {
         _inbox = inbox;
         _connection = connection;
-        _manager = manager;
-        Subject = subject;
-        QueueGroup = opts?.QueueGroup;
-        PendingMsgs = opts?.MaxMsgs;
     }
 
-    public string Subject { get; }
+    // Avoid base class error handling since inboxed subscribers will be responsible for that.
+    public override ValueTask ReceiveAsync(string subject, string? replyTo, ReadOnlySequence<byte>? headersBuffer, ReadOnlySequence<byte> payloadBuffer) =>
+        _inbox.ReceivedAsync(subject, replyTo, headersBuffer, payloadBuffer, _connection);
 
-    public string? QueueGroup { get; }
+    // Not used. Dummy implementation to keep base happy.
+    protected override ValueTask ReceiveInternalAsync(string subject, string? replyTo, ReadOnlySequence<byte>? headersBuffer, ReadOnlySequence<byte> payloadBuffer)
+        => ValueTask.CompletedTask;
 
-    public int? PendingMsgs { get; }
-
-    public void Ready()
+    protected override void TryComplete()
     {
     }
-
-    public ValueTask ReceiveAsync(string subject, string? replyTo, ReadOnlySequence<byte>? headersBuffer, ReadOnlySequence<byte> payloadBuffer)
-    {
-        return _inbox.ReceivedAsync(subject, replyTo, headersBuffer, payloadBuffer, _connection);
-    }
-
-    public ValueTask DisposeAsync() => _manager.RemoveAsync(this);
 }
 
-internal class InboxSubBuilder : INatsSubBuilder<InboxSub>, ISubscriptionManager
+internal class InboxSubBuilder : ISubscriptionManager
 {
     private readonly ILogger<InboxSubBuilder> _logger;
-    private readonly ConcurrentDictionary<string, ConditionalWeakTable<INatsSub, object>> _bySubject = new();
+    private readonly ConcurrentDictionary<string, ConditionalWeakTable<NatsSubBase, object>> _bySubject = new();
 
     public InboxSubBuilder(ILogger<InboxSubBuilder> logger) => _logger = logger;
 
@@ -56,11 +47,11 @@ internal class InboxSubBuilder : INatsSubBuilder<InboxSub>, ISubscriptionManager
         return new InboxSub(this, subject, opts, connection, manager);
     }
 
-    public void Register(INatsSub sub)
+    public ValueTask RegisterAsync(NatsSubBase sub)
     {
         _bySubject.AddOrUpdate(
                 sub.Subject,
-                static (_, s) => new ConditionalWeakTable<INatsSub, object> { { s, new object() } },
+                static (_, s) => new ConditionalWeakTable<NatsSubBase, object> { { s, new object() } },
                 static (_, subTable, s) =>
                 {
                     lock (subTable)
@@ -69,7 +60,7 @@ internal class InboxSubBuilder : INatsSubBuilder<InboxSub>, ISubscriptionManager
                         {
                             // if current subTable is empty, it may be in process of being removed
                             // return a new object
-                            return new ConditionalWeakTable<INatsSub, object> { { s, new object() } };
+                            return new ConditionalWeakTable<NatsSubBase, object> { { s, new object() } };
                         }
 
                         // the updateValueFactory delegate can be called multiple times
@@ -80,7 +71,7 @@ internal class InboxSubBuilder : INatsSubBuilder<InboxSub>, ISubscriptionManager
                 },
                 sub);
 
-        sub.Ready();
+        return sub.ReadyAsync();
     }
 
     public async ValueTask ReceivedAsync(string subject, string? replyTo, ReadOnlySequence<byte>? headersBuffer, ReadOnlySequence<byte> payloadBuffer, NatsConnection connection)
@@ -97,7 +88,7 @@ internal class InboxSubBuilder : INatsSubBuilder<InboxSub>, ISubscriptionManager
         }
     }
 
-    public ValueTask RemoveAsync(INatsSub sub)
+    public ValueTask RemoveAsync(NatsSubBase sub)
     {
         if (!_bySubject.TryGetValue(sub.Subject, out var subTable))
         {

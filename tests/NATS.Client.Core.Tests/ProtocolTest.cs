@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Text;
+
 namespace NATS.Client.Core.Tests;
 
 public class ProtocolTest
@@ -105,7 +108,7 @@ public class ProtocolTest
             _output.WriteLine($"[TESTS] {DateTime.Now:HH:mm:ss.fff} {text}");
         }
 
-        await using var server = NatsServer.Start(_output, new NatsServerOptionsBuilder().UseTransport(TransportType.Tcp).Trace().Build());
+        await using var server = NatsServer.Start(_output, new NatsServerOptsBuilder().UseTransport(TransportType.Tcp).Trace().Build());
         var (nats, proxy) = server.CreateProxiedClientConnection();
 
         var sync = 0;
@@ -145,7 +148,7 @@ public class ProtocolTest
         Assert.Matches(@"^MSG foo.signal1 \w+ 0␍␊$", msgFrame1.Message);
 
         Log("HPUB notifications");
-        await nats.PublishAsync("foo.signal2", opts: new NatsPubOpts { Headers = new NatsHeaders() });
+        await nats.PublishAsync("foo.signal2", headers: new NatsHeaders());
         var msg2 = await signal2;
         Assert.Equal(0, msg2.Data.Length);
         Assert.NotNull(msg2.Headers);
@@ -172,14 +175,14 @@ public class ProtocolTest
         }
 
         // Use a single server to test multiple scenarios to make test runs more efficient
-        await using var server = NatsServer.Start(_output, new NatsServerOptionsBuilder().UseTransport(TransportType.Tcp).Trace().Build());
+        await using var server = NatsServer.Start(_output, new NatsServerOptsBuilder().UseTransport(TransportType.Tcp).Trace().Build());
         var (nats, proxy) = server.CreateProxiedClientConnection();
         var sid = 0;
 
         Log("### Auto-unsubscribe after consuming max-msgs");
         {
             var opts = new NatsSubOpts { MaxMsgs = maxMsgs };
-            await using var sub = await nats.SubscribeAsync<int>("foo", opts);
+            await using var sub = await nats.SubscribeAsync<int>("foo", opts: opts);
             sid++;
 
             await Retry.Until("all frames arrived", () => proxy.Frames.Count >= 2);
@@ -202,7 +205,7 @@ public class ProtocolTest
             }
 
             Assert.Equal(maxMsgs, count);
-            Assert.Equal(NatsSubEndReason.MaxMsgs, sub.EndReason);
+            Assert.Equal(NatsSubEndReason.MaxMsgs, ((NatsSubBase)sub).EndReason);
         }
 
         Log("### Manual unsubscribe");
@@ -235,7 +238,7 @@ public class ProtocolTest
             }
 
             Assert.Equal(0, count);
-            Assert.Equal(NatsSubEndReason.None, sub.EndReason);
+            Assert.Equal(NatsSubEndReason.None, ((NatsSubBase)sub).EndReason);
         }
 
         Log("### Reconnect");
@@ -243,7 +246,7 @@ public class ProtocolTest
             proxy.Reset();
 
             var opts = new NatsSubOpts { MaxMsgs = maxMsgs };
-            var sub = await nats.SubscribeAsync<int>("foo3", opts);
+            var sub = await nats.SubscribeAsync<int>("foo3", opts: opts);
             sid++;
             var count = 0;
             var reg = sub.Register(_ => Interlocked.Increment(ref count));
@@ -258,7 +261,7 @@ public class ProtocolTest
             await Retry.Until("received", () => Volatile.Read(ref count) == pubMsgs);
 
             var pending = maxMsgs - pubMsgs;
-            Assert.Equal(pending, ((INatsSub)sub).PendingMsgs);
+            Assert.Equal(pending, ((NatsSubBase)sub).PendingMsgs);
 
             proxy.Reset();
 
@@ -281,12 +284,87 @@ public class ProtocolTest
 
             await Retry.Until(
                 "unsubscribed with max-msgs",
-                () => sub.EndReason == NatsSubEndReason.MaxMsgs);
+                () => ((NatsSubBase)sub).EndReason == NatsSubEndReason.MaxMsgs);
 
             Assert.Equal(maxMsgs, Volatile.Read(ref count));
 
             await sub.DisposeAsync();
             await reg;
+        }
+    }
+
+    [Fact]
+    public async Task Reconnect_with_sub_and_additional_commands()
+    {
+        await using var server = NatsServer.Start();
+        var (nats, proxy) = server.CreateProxiedClientConnection();
+
+        const string subject = "foo";
+
+        var sync = 0;
+        await using var sub = new NatsSubReconnectTest(nats, subject, i => Interlocked.Exchange(ref sync, i));
+        await nats.SubAsync(sub.Subject, queueGroup: default, opts: default, sub: sub);
+
+        await Retry.Until(
+            "subscribed",
+            () => Volatile.Read(ref sync) == 1,
+            async () => await nats.PublishAsync(subject, 1));
+
+        var disconnected = new WaitSignal();
+        nats.ConnectionDisconnected += (_, _) => disconnected.Pulse();
+
+        proxy.Reset();
+
+        await disconnected;
+
+        await Retry.Until(
+            "re-subscribed",
+            () => Volatile.Read(ref sync) == 2,
+            async () => await nats.PublishAsync(subject, 2));
+
+        await Retry.Until(
+            "frames collected",
+            () => proxy.ClientFrames.Any(f => f.Message.StartsWith("PUB foo")));
+
+        var frames = proxy.ClientFrames.Select(f => f.Message).ToList();
+        Assert.StartsWith("SUB foo", frames[0]);
+        Assert.StartsWith("PUB bar1", frames[1]);
+        Assert.StartsWith("PUB bar2", frames[2]);
+        Assert.StartsWith("PUB bar3", frames[3]);
+        Assert.StartsWith("PUB foo", frames[4]);
+
+        await nats.DisposeAsync();
+    }
+
+    private sealed class NatsSubReconnectTest : NatsSubBase
+    {
+        private readonly Action<int> _callback;
+
+        internal NatsSubReconnectTest(NatsConnection connection, string subject, Action<int> callback)
+            : base(connection, connection.SubscriptionManager, subject, queueGroup: default, opts: default) =>
+            _callback = callback;
+
+        internal override IEnumerable<ICommand> GetReconnectCommands(int sid)
+        {
+            // Yield re-subscription
+            foreach (var command in base.GetReconnectCommands(sid))
+                yield return command;
+
+            // Any additional commands to send on reconnect
+            yield return PublishBytesCommand.Create(Connection.ObjectPool, "bar1", default, default, default, default);
+            yield return PublishBytesCommand.Create(Connection.ObjectPool, "bar2", default, default, default, default);
+            yield return PublishBytesCommand.Create(Connection.ObjectPool, "bar3", default, default, default, default);
+        }
+
+        protected override ValueTask ReceiveInternalAsync(string subject, string? replyTo, ReadOnlySequence<byte>? headersBuffer, ReadOnlySequence<byte> payloadBuffer)
+        {
+            _callback(int.Parse(Encoding.UTF8.GetString(payloadBuffer)));
+            DecrementMaxMsgs();
+            return ValueTask.CompletedTask;
+        }
+
+        protected override void TryComplete()
+        {
         }
     }
 }

@@ -1,10 +1,9 @@
 using System.Diagnostics;
-using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.RegularExpressions;
 using Cysharp.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace NATS.Client.Core.Tests;
 
@@ -33,6 +32,7 @@ public class NatsServer : IAsyncDisposable
     private readonly Task<string[]> _processOut;
     private readonly Task<string[]> _processErr;
     private readonly TransportType _transportType;
+    private readonly OutputHelperLoggerFactory _loggerFactory;
     private int _disposed;
 
     static NatsServer()
@@ -54,21 +54,21 @@ public class NatsServer : IAsyncDisposable
         Version = new Version(value);
     }
 
-    private NatsServer(ITestOutputHelper outputHelper, NatsServerOptions options)
+    private NatsServer(ITestOutputHelper outputHelper, NatsServerOpts opts)
     {
         _outputHelper = outputHelper;
-        _transportType = options.TransportType;
-        Options = options;
+        _transportType = opts.TransportType;
+        Opts = opts;
 
-        if (options.EnableJetStream)
+        if (opts.EnableJetStream)
         {
             _jetStreamStoreDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n"));
             Directory.CreateDirectory(_jetStreamStoreDir);
-            options.JetStreamStoreDir = _jetStreamStoreDir;
+            opts.JetStreamStoreDir = _jetStreamStoreDir;
         }
 
         _configFileName = Path.GetTempFileName();
-        var config = options.ConfigFileContents;
+        var config = opts.ConfigFileContents;
         File.WriteAllText(_configFileName, config);
         var cmd = $"{NatsServerPath} -c {_configFileName}";
 
@@ -86,7 +86,7 @@ public class NatsServer : IAsyncDisposable
             {
                 try
                 {
-                    await client.ConnectAsync("localhost", Options.ServerPort, _cancellationTokenSource.Token);
+                    await client.ConnectAsync("localhost", Opts.ServerPort, _cancellationTokenSource.Token);
                     if (client.Connected)
                         return;
                 }
@@ -109,16 +109,17 @@ public class NatsServer : IAsyncDisposable
             _processErr.GetAwaiter().GetResult(); // throw exception
         }
 
-        outputHelper.WriteLine("OK to Process Start, Port:" + Options.ServerPort);
+        outputHelper.WriteLine("OK to Process Start, Port:" + Opts.ServerPort);
+        _loggerFactory = new OutputHelperLoggerFactory(_outputHelper, this);
     }
 
-    public NatsServerOptions Options { get; }
+    public NatsServerOpts Opts { get; }
 
     public string ClientUrl => _transportType switch
     {
-        TransportType.Tcp => $"nats://localhost:{Options.ServerPort}",
-        TransportType.Tls => $"tls://localhost:{Options.ServerPort}",
-        TransportType.WebSocket => $"ws://localhost:{Options.WebSocketPort}",
+        TransportType.Tcp => $"nats://localhost:{Opts.ServerPort}",
+        TransportType.Tls => $"tls://localhost:{Opts.ServerPort}",
+        TransportType.WebSocket => $"ws://localhost:{Opts.WebSocketPort}",
         _ => throw new ArgumentOutOfRangeException(),
     };
 
@@ -128,20 +129,22 @@ public class NatsServer : IAsyncDisposable
         {
             if (_transportType == TransportType.WebSocket && ServerVersions.V2_9_19 <= Version)
             {
-                return Options.WebSocketPort!.Value;
+                return Opts.WebSocketPort!.Value;
             }
             else
             {
-                return Options.ServerPort;
+                return Opts.ServerPort;
             }
         }
     }
+
+    public Action<LogMessage> OnLog { get; set; } = _ => { };
 
     public static NatsServer StartJS() => StartJS(new NullOutputHelper(), TransportType.Tcp);
 
     public static NatsServer StartJS(ITestOutputHelper outputHelper, TransportType transportType) => Start(
         outputHelper: outputHelper,
-        options: new NatsServerOptionsBuilder()
+        opts: new NatsServerOptsBuilder()
             .UseTransport(transportType)
             .UseJetStream()
             .Build());
@@ -151,9 +154,9 @@ public class NatsServer : IAsyncDisposable
     public static NatsServer Start(ITestOutputHelper outputHelper) => Start(outputHelper, TransportType.Tcp);
 
     public static NatsServer Start(ITestOutputHelper outputHelper, TransportType transportType) =>
-        Start(outputHelper, new NatsServerOptionsBuilder().UseTransport(transportType).Build());
+        Start(outputHelper, new NatsServerOptsBuilder().UseTransport(transportType).Build());
 
-    public static NatsServer Start(ITestOutputHelper outputHelper, NatsServerOptions options, NatsOptions? clientOptions = default)
+    public static NatsServer Start(ITestOutputHelper outputHelper, NatsServerOpts opts, NatsOpts? clientOpts = default)
     {
         NatsServer? server = null;
         NatsConnection? nats = null;
@@ -161,8 +164,8 @@ public class NatsServer : IAsyncDisposable
         {
             try
             {
-                server = new NatsServer(outputHelper, options);
-                nats = server.CreateClientConnection(clientOptions ?? NatsOptions.Default, reTryCount: 3);
+                server = new NatsServer(outputHelper, opts);
+                nats = server.CreateClientConnection(clientOpts ?? NatsOpts.Default, reTryCount: 3);
 #pragma warning disable CA2012
                 return server;
             }
@@ -194,7 +197,7 @@ public class NatsServer : IAsyncDisposable
             var processLogs = await _processErr; // wait for process exit, nats output info to stderror
             if (processLogs.Length != 0)
             {
-                _outputHelper.WriteLine("Process Logs of " + Options.ServerPort);
+                _outputHelper.WriteLine("Process Logs of " + Opts.ServerPort);
                 foreach (var item in processLogs)
                 {
                     _outputHelper.WriteLine(item);
@@ -223,25 +226,25 @@ public class NatsServer : IAsyncDisposable
                 }
             }
 
-            if (Options.ServerDisposeReturnsPorts)
+            if (Opts.ServerDisposeReturnsPorts)
             {
-                Options.Dispose();
+                Opts.Dispose();
             }
         }
     }
 
-    public (NatsConnection, NatsProxy) CreateProxiedClientConnection(NatsOptions? options = null)
+    public (NatsConnection, NatsProxy) CreateProxiedClientConnection(NatsOpts? options = null)
     {
-        if (Options.EnableTls)
+        if (Opts.EnableTls)
         {
             throw new Exception("Tapped mode doesn't work wit TLS");
         }
 
-        var proxy = new NatsProxy(Options.ServerPort, _outputHelper, Options.Trace);
+        var proxy = new NatsProxy(Opts.ServerPort, _outputHelper, Opts.Trace);
 
-        var client = new NatsConnection((options ?? NatsOptions.Default) with
+        var client = new NatsConnection((options ?? NatsOpts.Default) with
         {
-            LoggerFactory = new OutputHelperLoggerFactory(_outputHelper),
+            LoggerFactory = _loggerFactory,
             Url = $"nats://localhost:{proxy.Port}",
             ConnectTimeout = TimeSpan.FromSeconds(10),
         });
@@ -249,13 +252,13 @@ public class NatsServer : IAsyncDisposable
         return (client, proxy);
     }
 
-    public NatsConnection CreateClientConnection(NatsOptions? options = default, int reTryCount = 10, bool ignoreAuthorizationException = false)
+    public NatsConnection CreateClientConnection(NatsOpts? options = default, int reTryCount = 10, bool ignoreAuthorizationException = false)
     {
         for (var i = 0; i < reTryCount; i++)
         {
             try
             {
-                var nats = new NatsConnection(ClientOptions(options ?? NatsOptions.Default));
+                var nats = new NatsConnection(ClientOpts(options ?? NatsOpts.Default));
 
                 try
                 {
@@ -283,32 +286,58 @@ public class NatsServer : IAsyncDisposable
         throw new Exception("Can't create a connection to nats-server");
     }
 
-    public NatsConnectionPool CreatePooledClientConnection() => CreatePooledClientConnection(NatsOptions.Default);
+    public NatsConnectionPool CreatePooledClientConnection() => CreatePooledClientConnection(NatsOpts.Default);
 
-    public NatsConnectionPool CreatePooledClientConnection(NatsOptions options)
+    public NatsConnectionPool CreatePooledClientConnection(NatsOpts opts)
     {
-        return new NatsConnectionPool(4, ClientOptions(options));
+        return new NatsConnectionPool(4, ClientOpts(opts));
     }
 
-    public NatsOptions ClientOptions(NatsOptions options)
+    public NatsOpts ClientOpts(NatsOpts opts)
     {
-        return options with
+        return opts with
         {
-            LoggerFactory = new OutputHelperLoggerFactory(_outputHelper),
+            LoggerFactory = _loggerFactory,
 
             // ConnectTimeout = TimeSpan.FromSeconds(1),
             // ReconnectWait = TimeSpan.Zero,
             // ReconnectJitter = TimeSpan.Zero,
-            TlsOptions = Options.EnableTls
-                ? TlsOptions.Default with
+            TlsOpts = Opts.EnableTls
+                ? NatsTlsOpts.Default with
                 {
-                    CertFile = Options.TlsClientCertFile,
-                    KeyFile = Options.TlsClientKeyFile,
-                    CaFile = Options.TlsCaFile,
+                    CertFile = Opts.TlsClientCertFile,
+                    KeyFile = Opts.TlsClientKeyFile,
+                    CaFile = Opts.TlsCaFile,
                 }
-                : TlsOptions.Default,
+                : NatsTlsOpts.Default,
             Url = ClientUrl,
         };
+    }
+
+    public void LogMessage<TState>(string categoryName, LogLevel logLevel, EventId eventId, Exception? exception, string text, TState state)
+    {
+        foreach (var @delegate in OnLog.GetInvocationList())
+        {
+            var action = (Action<LogMessage>)@delegate;
+            try
+            {
+                if (state is IReadOnlyList<KeyValuePair<string, object?>> kvs)
+                {
+                    action(new LogMessage(categoryName, logLevel, eventId, exception, text, kvs));
+                }
+                else
+                {
+                    action(new LogMessage(categoryName, logLevel, eventId, exception, text, new[]
+                    {
+                        new KeyValuePair<string, object?>("text", text),
+                    }));
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
     }
 
     private async Task<string[]> EnumerateWithLogsAsync(ProcessAsyncEnumerable enumerable, CancellationToken cancellationToken)
@@ -329,23 +358,31 @@ public class NatsServer : IAsyncDisposable
     }
 }
 
+public record LogMessage(
+    string Category,
+    LogLevel LogLevel,
+    EventId EventId,
+    Exception? Exception,
+    string Text,
+    IReadOnlyList<KeyValuePair<string, object?>> State);
+
 public class NatsCluster : IAsyncDisposable
 {
     public NatsCluster(ITestOutputHelper outputHelper, TransportType transportType)
     {
-        var opts1 = new NatsServerOptions
+        var opts1 = new NatsServerOpts
         {
             TransportType = transportType,
             EnableWebSocket = transportType == TransportType.WebSocket,
             EnableClustering = true,
         };
-        var opts2 = new NatsServerOptions
+        var opts2 = new NatsServerOpts
         {
             TransportType = transportType,
             EnableWebSocket = transportType == TransportType.WebSocket,
             EnableClustering = true,
         };
-        var opts3 = new NatsServerOptions
+        var opts3 = new NatsServerOpts
         {
             TransportType = transportType,
             EnableWebSocket = transportType == TransportType.WebSocket,
@@ -376,248 +413,7 @@ public class NatsCluster : IAsyncDisposable
     }
 }
 
-public class NatsProxy : IDisposable
-{
-    private readonly ITestOutputHelper _outputHelper;
-    private readonly bool _trace;
-    private readonly TcpListener _tcpListener;
-    private readonly List<TcpClient> _clients = new();
-    private readonly List<Frame> _frames = new();
-    private readonly Stopwatch _watch = new();
-    private int _syncCount;
-
-    public NatsProxy(int port, ITestOutputHelper outputHelper, bool trace)
-    {
-        _outputHelper = outputHelper;
-        _trace = trace;
-        _tcpListener = new TcpListener(IPAddress.Loopback, 0);
-        _tcpListener.Start();
-        _watch.Restart();
-
-        Task.Run(() =>
-        {
-            var client = 0;
-            while (true)
-            {
-                var tcpClient1 = _tcpListener.AcceptTcpClient();
-                TcpClient tcpClient2;
-                lock (_clients)
-                {
-                    tcpClient1.NoDelay = true;
-                    tcpClient1.ReceiveBufferSize = 0;
-                    tcpClient1.SendBufferSize = 0;
-                    _clients.Add(tcpClient1);
-
-                    tcpClient2 = new TcpClient("127.0.0.1", port);
-                    tcpClient2.NoDelay = true;
-                    tcpClient2.ReceiveBufferSize = 0;
-                    tcpClient2.SendBufferSize = 0;
-                    _clients.Add(tcpClient2);
-                }
-
-                var n = client++;
-
 #pragma warning disable CS4014
-                Task.Run(() =>
-                {
-                    var stream1 = tcpClient1.GetStream();
-                    var sr1 = new StreamReader(stream1, Encoding.ASCII);
-                    var sw1 = new StreamWriter(stream1, Encoding.ASCII);
-
-                    var stream2 = tcpClient2.GetStream();
-                    var sr2 = new StreamReader(stream2, Encoding.ASCII);
-                    var sw2 = new StreamWriter(stream2, Encoding.ASCII);
-
-                    Task.Run(() =>
-                    {
-                        while (NatsProtoDump(n, "C", sr1, sw2))
-                        {
-                        }
-                    });
-
-                    while (NatsProtoDump(n, $"S", sr2, sw1))
-                    {
-                    }
-                });
-            }
-        });
-
-        var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.Elapsed < TimeSpan.FromSeconds(10))
-        {
-            try
-            {
-                using var tcpClient = new TcpClient();
-                tcpClient.Connect(IPAddress.Loopback, Port);
-                Log($"Server started on localhost:{Port}");
-                return;
-            }
-            catch (SocketException)
-            {
-            }
-        }
-
-        throw new TimeoutException("Wiretap server didn't start");
-    }
-
-    public int Port => ((IPEndPoint)_tcpListener.Server.LocalEndPoint!).Port;
-
-    public IReadOnlyList<Frame> AllFrames
-    {
-        get
-        {
-            lock (_frames)
-            {
-                return _frames.ToList();
-            }
-        }
-    }
-
-    public IReadOnlyList<Frame> Frames
-    {
-        get
-        {
-            lock (_frames)
-            {
-                return _frames
-                    .Where(f => !Regex.IsMatch(f.Message, @"^(INFO|CONNECT|PING|PONG|\+OK)"))
-                    .ToList();
-            }
-        }
-    }
-
-    public IReadOnlyList<Frame> ClientFrames => Frames.Where(f => f.Origin == "C").ToList();
-
-    public IReadOnlyList<Frame> ServerFrames => Frames.Where(f => f.Origin == "S").ToList();
-
-    public void Reset()
-    {
-        lock (_clients)
-        {
-            foreach (var tcpClient in _clients)
-            {
-                try
-                {
-                    tcpClient.Close();
-                }
-                catch
-                {
-                    // ignore
-                }
-            }
-
-            lock (_frames)
-                _frames.Clear();
-
-            _watch.Restart();
-        }
-    }
-
-    public async Task FlushFramesAsync(NatsConnection nats)
-    {
-        var subject = $"_SIGNAL_SYNC_{Interlocked.Increment(ref _syncCount)}";
-
-        await nats.PublishAsync(subject);
-
-        await Retry.Until(
-            "flush sync frame",
-            () => AllFrames.Any(f => f.Message == $"PUB {subject} 0␍␊"));
-
-        lock (_frames)
-            _frames.Clear();
-    }
-
-    public void Dispose() => _tcpListener.Server.Dispose();
-
-    private bool NatsProtoDump(int client, string origin, TextReader sr, TextWriter sw)
-    {
-        string? message;
-        try
-        {
-            message = sr.ReadLine();
-        }
-        catch
-        {
-            return false;
-        }
-
-        if (message == null)
-            return false;
-
-        if (Regex.IsMatch(message, @"^(INFO|CONNECT|PING|PONG|UNSUB|SUB|\+OK|-ERR)"))
-        {
-            if (client > 0)
-                AddFrame(new Frame(_watch.Elapsed, client, origin, message));
-
-            sw.WriteLine(message);
-            sw.Flush();
-            return true;
-        }
-
-        var match = Regex.Match(message, @"^(?:PUB|HPUB|MSG|HMSG).*?(\d+)\s*$");
-        if (match.Success)
-        {
-            var size = int.Parse(match.Groups[1].Value);
-            var buffer = new char[size + 2];
-            var span = buffer.AsSpan();
-            while (true)
-            {
-                var read = sr.Read(span);
-                if (read == 0)
-                    break;
-                if (read == -1)
-                    return false;
-                span = span[read..];
-            }
-
-            var sb = new StringBuilder();
-            foreach (var c in buffer.AsSpan()[..size])
-            {
-                switch (c)
-                {
-                case >= ' ' and <= '~':
-                    sb.Append(c);
-                    break;
-                case '\n':
-                    sb.Append('␊');
-                    break;
-                case '\r':
-                    sb.Append('␍');
-                    break;
-                default:
-                    sb.Append('.');
-                    break;
-                }
-            }
-
-            sw.WriteLine(message);
-            sw.Write(buffer);
-            sw.Flush();
-
-            if (client > 0)
-                AddFrame(new Frame(_watch.Elapsed, client, origin, Message: $"{message}␍␊{sb}"));
-
-            return true;
-        }
-
-        if (client > 0)
-            AddFrame(new Frame(_watch.Elapsed, client, Origin: "ERROR", Message: $"Unknown protocol: {message}"));
-
-        return false;
-    }
-
-    private void AddFrame(Frame frame)
-    {
-        if (_trace)
-            Log($"TRACE {frame}");
-        lock (_frames)
-            _frames.Add(frame);
-    }
-
-    private void Log(string text) => _outputHelper.WriteLine($"[PROXY] {DateTime.Now:HH:mm:ss.fff} {text}");
-
-    public record Frame(TimeSpan Timestamp, int Client, string Origin, string Message);
-}
 
 public class NullOutputHelper : ITestOutputHelper
 {
